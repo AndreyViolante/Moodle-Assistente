@@ -11,10 +11,13 @@ from dotenv import load_dotenv
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-MOODLE_URL = "https://moodle.univassouras.edu.br"
+# Tudo que e pessoal vem do .env; sem isso o projeto so serviria pra uma pessoa.
+# O que ficar em branco o proprio Moodle informa: o usuario sai do token e os
+# cursos sao os que ele estiver matriculado.
+MOODLE_URL = (os.getenv("MOODLE_URL") or "https://moodle.univassouras.edu.br").rstrip("/")
 TOKEN = (os.getenv("MOODLE_TOKEN") or "").strip()
-USER_ID = 1730027
-COURSE_IDS = [48598, 48573, 48464, 48458, 48374, 48215, 44078]
+USER_ID = int(os.getenv("MOODLE_USER_ID") or 0) or None
+COURSE_IDS = [int(x) for x in re.findall(r"\d+", os.getenv("MOODLE_COURSE_IDS") or "")] or None
 STATE_FILE = os.path.join(BASE_DIR, "last_check.json")
 TIPO_LEGIVEL = {"configuration": "configuracoes/prazo alterado", "contentfiles": "novo arquivo/material"}
 STATUS_MAP = {"submitted": "ENTREGUE", "new": "NAO ENTREGUE", "draft": "RASCUNHO"}
@@ -43,10 +46,12 @@ def coletar():
     sessao = requests.Session()
     agora = int(time.time())
 
-    courses_info = _chamar(sessao, "core_enrol_get_users_courses", {"userid": USER_ID})
+    usuario = USER_ID or _chamar(sessao, "core_webservice_get_site_info", {})["userid"]
+    courses_info = _chamar(sessao, "core_enrol_get_users_courses", {"userid": usuario})
     nomes_curso = {c["id"]: c["fullname"] for c in courses_info}
+    cursos = COURSE_IDS or [c["id"] for c in courses_info]
 
-    assign_data = _chamar(sessao, "mod_assign_get_assignments", {"courseids[]": COURSE_IDS})
+    assign_data = _chamar(sessao, "mod_assign_get_assignments", {"courseids[]": cursos})
     atividades = []
     for course in assign_data["courses"]:
         for a in course["assignments"]:
@@ -69,7 +74,7 @@ def coletar():
         since = agora - 7 * 24 * 60 * 60
 
     novidades = []
-    for cid in COURSE_IDS:
+    for cid in cursos:
         updates = _chamar(sessao, "core_course_get_updates_since", {"courseid": cid, "since": since})
         relevantes = []
         for inst in updates.get("instances", []):
