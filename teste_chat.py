@@ -201,7 +201,59 @@ def etapa3(janela):
     ia.requests.post = lambda *ar, **kw: (_ for _ in ()).throw(
         ia.requests.exceptions.ConnectionError("sem rede"))
     janela._enviar("teste de erro")
-    a.after(1200, lambda: etapa4(janela))
+    a.after(1200, lambda: etapa_copiar(janela))
+
+
+@passo
+def etapa_copiar(janela):
+    print("=== botao de copiar ===")
+    from janela_chat import BotaoCopiar
+
+    def todos(w):
+        yield w
+        for f in w.winfo_children():
+            yield from todos(f)
+
+    def rotulo(w):
+        try:
+            return w.cget("text")
+        except Exception:
+            return ""
+
+    def botoes(b):
+        return [x for x in todos(b) if isinstance(x, BotaoCopiar)]
+
+    resposta = [x for x in bolhas(janela) if x._texto.startswith("Claro!")][0]
+    bts = botoes(resposta)
+    checar("bolha da IA tem botao de copiar", len(bts) >= 2, f"{len(bts)} botoes")
+
+    bt_codigo = [x for x in bts if rotulo(x) == "copiar"]
+    checar("o bloco de codigo tem seu proprio botao", len(bt_codigo) == 1, str(len(bt_codigo)))
+    if bt_codigo:
+        janela.clipboard_clear()
+        bt_codigo[0]._copiar()
+        a.update()
+        copiado = janela.clipboard_get()
+        checar("copia o codigo cru, sem as cercas", copiado.startswith("class Fabrica"),
+               repr(copiado[:40]))
+        checar("copia o corpo inteiro", "def criar" in copiado and "pass" in copiado)
+        checar("nao leva a marcacao markdown", "```" not in copiado)
+        checar("avisa que copiou", rotulo(bt_codigo[0]) == "copiado!", rotulo(bt_codigo[0]))
+
+    bt_tudo = [x for x in bts if rotulo(x) == "copiar resposta"]
+    checar("a resposta inteira tem botao", len(bt_tudo) == 1, str(len(bt_tudo)))
+    if bt_tudo:
+        janela.clipboard_clear()
+        bt_tudo[0]._copiar()
+        a.update()
+        tudo = janela.clipboard_get()
+        checar("copia a resposta como veio da IA", tudo == RESPOSTA, repr(tudo[:40]))
+
+    usuario = [x for x in bolhas(janela) if x._texto == "Por onde eu comeco?"][0]
+    checar("bolha do usuario nao tem botao de copiar", not botoes(usuario))
+    checar("a barrinha mostra a linguagem do bloco",
+           any(rotulo(w) == "python" for w in todos(resposta)))
+    a.after(300, lambda: etapa4(janela))
 
 
 @passo

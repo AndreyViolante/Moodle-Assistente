@@ -25,6 +25,28 @@ SUGESTOES = [
 ]
 
 
+class BotaoCopiar(ctk.CTkButton):
+    """Copia pra area de transferencia e confirma no proprio rotulo."""
+
+    def __init__(self, master, obter_texto, rotulo="copiar"):
+        super().__init__(master, text=rotulo, font=(FONTE, 10), height=20, width=1,
+                         fg_color="transparent", hover_color=C["cartao_hover"],
+                         text_color=C["apagado"], corner_radius=6, command=self._copiar)
+        self._obter = obter_texto
+        self._rotulo = rotulo
+
+    def _copiar(self):
+        self.clipboard_clear()
+        self.clipboard_append(self._obter() or "")
+        self.update_idletasks()  # sem isso o conteudo some quando a janela fecha
+        self.configure(text="copiado!", text_color=C["verde"])
+        self.after(1500, self._voltar)
+
+    def _voltar(self):
+        if self.winfo_exists():
+            self.configure(text=self._rotulo, text_color=C["apagado"])
+
+
 class Bolha(ctk.CTkFrame):
     """Uma mensagem do chat. Renderiza markdown simples: **negrito**, listas e
     blocos de codigo em fonte mono."""
@@ -35,9 +57,13 @@ class Bolha(ctk.CTkFrame):
                          corner_radius=14, border_width=0 if eu else 1,
                          border_color=C["borda"])
         autor = "Você" if eu else "Tutor IA"
-        ctk.CTkLabel(self, text=autor, font=(FONTE, 10, "bold"),
+        cabecalho = ctk.CTkFrame(self, fg_color="transparent")
+        cabecalho.pack(fill="x", padx=14, pady=(8, 0))
+        ctk.CTkLabel(cabecalho, text=autor, font=(FONTE, 10, "bold"),
                      text_color=C["fundo"] if eu else C["roxo"],
-                     anchor="w").pack(fill="x", padx=14, pady=(8, 0))
+                     anchor="w").pack(side="left")
+        if not eu:
+            BotaoCopiar(cabecalho, lambda: self._texto, "copiar resposta").pack(side="right")
         self._cor_texto = C["fundo"] if eu else C["texto"]
         self._largura = 560
         self._texto = texto
@@ -55,10 +81,15 @@ class Bolha(ctk.CTkFrame):
         self._texto = texto
         for f in self._corpo.winfo_children():
             f.destroy()
-        for bloco, tipo in self._blocos(texto):
+        for bloco, tipo, lingua in self._blocos(texto):
             if tipo == "codigo":
                 caixa = ctk.CTkFrame(self._corpo, fg_color=C["fundo"], corner_radius=8)
                 caixa.pack(fill="x", pady=4)
+                barra = ctk.CTkFrame(caixa, fg_color="transparent")
+                barra.pack(fill="x", padx=8, pady=(4, 0))
+                ctk.CTkLabel(barra, text=lingua or "codigo", font=(FONTE, 9),
+                             text_color=C["apagado"]).pack(side="left")
+                BotaoCopiar(barra, lambda t=bloco: t).pack(side="right")
                 rot = tk.Text(caixa, bg=C["fundo"], fg=C["verde"], relief="flat",
                               font=(FONTE_MONO, 10), wrap="none", borderwidth=0,
                               height=max(1, bloco.count("\n") + 1), padx=10, pady=8,
@@ -66,6 +97,8 @@ class Bolha(ctk.CTkFrame):
                 rot.insert("1.0", bloco)
                 rot.configure(state="disabled")
                 rot.pack(fill="x")
+                # Text desabilitado ainda deixa selecionar e copiar com Ctrl+C
+                rot.bind("<Button-1>", lambda e, w=rot: w.focus_set())
             else:
                 ctk.CTkLabel(self._corpo, text=bloco, font=(FONTE, 12),
                              text_color=self._cor_texto, anchor="w", justify="left",
@@ -73,29 +106,36 @@ class Bolha(ctk.CTkFrame):
 
     @staticmethod
     def _blocos(texto):
-        """Separa blocos de codigo (```) do texto normal."""
+        """Separa blocos de codigo (```) do texto normal.
+
+        Devolve (conteudo, tipo, linguagem): a linguagem vem do ```python e
+        vira o rotulo da barrinha, ao lado do botao de copiar.
+        """
         partes = []
         dentro = False
         acumulado = []
+        lingua = ""
         for linha in texto.split("\n"):
             if linha.strip().startswith("```"):
                 if acumulado:
-                    partes.append(("\n".join(acumulado), "codigo" if dentro else "texto"))
+                    partes.append(("\n".join(acumulado), "codigo" if dentro else "texto", lingua if dentro else ""))
                     acumulado = []
+                if not dentro:
+                    lingua = linha.strip()[3:].strip()
                 dentro = not dentro
                 continue
             acumulado.append(linha)
         if acumulado:
-            partes.append(("\n".join(acumulado), "codigo" if dentro else "texto"))
+            partes.append(("\n".join(acumulado), "codigo" if dentro else "texto", lingua if dentro else ""))
         # limpa marcacao que nao da pra renderizar em CTkLabel
         limpos = []
-        for bloco, tipo in partes:
+        for bloco, tipo, lg in partes:
             if tipo == "texto":
                 bloco = bloco.replace("**", "").replace("`", "").strip("\n")
                 if not bloco.strip():
                     continue
-            limpos.append((bloco, tipo))
-        return limpos or [(texto, "texto")]
+            limpos.append((bloco, tipo, lg))
+        return limpos or [(texto, "texto", "")]
 
 
 class JanelaChat(ctk.CTkToplevel):
