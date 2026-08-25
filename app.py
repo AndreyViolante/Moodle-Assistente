@@ -158,6 +158,8 @@ class CartaoAtividade(ctk.CTkFrame):
         super().__init__(master, fg_color=C["cartao"], corner_radius=12,
                          border_width=1, border_color=C["borda"])
         self.url = atividade.get("url")
+        self._cor = C["cartao"]
+        self._conferindo = False
 
         chip_txt, cor, prazo_txt = info_prazo(atividade, agora)
 
@@ -185,14 +187,44 @@ class CartaoAtividade(ctk.CTkFrame):
                      text_color=cor_status, anchor="w").pack(side="left")
 
         if self.url:
-            self._bind_clique(self)
+            self._ligar(self)
 
-    def _bind_clique(self, widget):
-        widget.bind("<Button-1>", self._abrir)
-        widget.bind("<Enter>", lambda e: self.configure(fg_color=C["cartao_hover"], cursor="hand2"))
-        widget.bind("<Leave>", lambda e: self.configure(fg_color=C["cartao"], cursor="arrow"))
+    def _ligar(self, widget):
+        # tk.Misc: o bind()/configure() do CustomTkinter desvia pros widgets
+        # internos e deixa pedacos do cartao sem responder
+        tk.Misc.bind(widget, "<Button-1>", self._abrir)
+        tk.Misc.bind(widget, "<Enter>", self._entrou)
+        tk.Misc.bind(widget, "<Leave>", self._saiu)
+        tk.Misc.configure(widget, cursor="hand2")  # uma vez so, nao a cada hover
         for filho in widget.winfo_children():
-            self._bind_clique(filho)
+            self._ligar(filho)
+
+    def _entrou(self, _evento=None):
+        self._pintar(True)
+
+    def _saiu(self, _evento=None):
+        # <Leave> tambem dispara ao passar do cartao pra um filho dele, entao
+        # despintar direto aqui faz o cartao piscar a cada movimento do mouse.
+        # Confere de verdade onde o cursor esta antes de decidir.
+        if not self._conferindo:
+            self._conferindo = True
+            self.after_idle(self._conferir)
+
+    def _conferir(self):
+        self._conferindo = False
+        if self.winfo_exists():
+            self._pintar(self._cursor_dentro())
+
+    def _cursor_dentro(self):
+        x, y = self.winfo_pointerxy()
+        x0, y0 = self.winfo_rootx(), self.winfo_rooty()
+        return x0 <= x < x0 + self.winfo_width() and y0 <= y < y0 + self.winfo_height()
+
+    def _pintar(self, ativo):
+        cor = C["cartao_hover"] if ativo else C["cartao"]
+        if cor != self._cor:  # so redesenha quando a cor muda mesmo
+            self._cor = cor
+            self.configure(fg_color=cor)
 
     def _abrir(self, _evento=None):
         webbrowser.open(self.url)
