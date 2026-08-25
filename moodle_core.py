@@ -1,6 +1,8 @@
 """Logica compartilhada de acesso ao Moodle (usada pelo assistente.py e pelo app.py)."""
+import html
 import json
 import os
+import re
 import time
 
 import requests
@@ -53,9 +55,12 @@ def coletar():
                 submission_status = status["lastattempt"]["submission"]["status"]
             except KeyError:
                 submission_status = "desconhecido"
+            anexos = list(a.get("introattachments") or []) + list(a.get("activityattachments") or [])
             atividades.append({"materia": course["fullname"], "nome": a["name"],
                                "duedate": a["duedate"], "status": submission_status,
-                               "url": f"{MOODLE_URL}/mod/assign/view.php?id={a['cmid']}" if a.get("cmid") else None})
+                               "url": f"{MOODLE_URL}/mod/assign/view.php?id={a['cmid']}" if a.get("cmid") else None,
+                               "enunciado": texto_do_html((a.get("intro") or "") + (a.get("activity") or "")),
+                               "anexos": [x for x in anexos if x.get("fileurl")]})
 
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE) as f:
@@ -89,6 +94,28 @@ def coletar():
         json.dump({"since": agora}, f)
 
     return {"agora": agora, "atividades": atividades, "novidades": novidades}
+
+
+def texto_do_html(bruto):
+    """Converte o HTML que o professor escreveu em texto legivel."""
+    if not bruto:
+        return ""
+    t = re.sub(r"(?is)<(script|style).*?</\1>", "", bruto)
+    t = re.sub(r"(?i)<br\s*/?>", "\n", t)
+    t = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", t)
+    t = re.sub(r"(?i)<li[^>]*>", "  - ", t)
+    t = re.sub(r"<[^>]+>", "", t)
+    t = html.unescape(t).replace("\xa0", " ")
+    t = re.sub(r"[ \t]+", " ", t)
+    t = re.sub(r"\n\s*\n\s*\n+", "\n\n", t)
+    return "\n".join(linha.strip() for linha in t.splitlines()).strip()
+
+
+def baixar(fileurl, timeout=60):
+    """Baixa um arquivo do Moodle (os fileurl do webservice aceitam o token)."""
+    r = requests.get(fileurl, params={"token": TOKEN}, timeout=timeout)
+    r.raise_for_status()
+    return r.content
 
 
 def pendentes_ordenadas(atividades):

@@ -8,6 +8,7 @@ import ctypes
 import os
 import queue
 import threading
+import time
 import tkinter as tk
 import webbrowser
 from datetime import datetime
@@ -16,6 +17,8 @@ import customtkinter as ctk
 
 import moodle_core
 import notificacoes
+from janela_chat import JanelaChat
+from ui import C, FONTE, AreaRolavel, Chip, info_prazo, materia_curta, wrap
 
 ATUALIZA_CADA_MS = 30 * 60 * 1000  # 30 minutos
 ICONE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icone.ico")
@@ -28,145 +31,12 @@ except Exception:
 
 ctk.set_appearance_mode("dark")
 
-C = {
-    "fundo": "#12121c",
-    "cartao": "#1d1d2b",
-    "cartao_hover": "#262638",
-    "borda": "#2e2e42",
-    "texto": "#eceff4",
-    "apagado": "#8b8ba3",
-    "azul": "#7aa2f7",
-    "vermelho": "#f7768e",
-    "laranja": "#ff9e64",
-    "verde": "#9ece6a",
-    "amarelo": "#e0af68",
-}
-
-FONTE = "Segoe UI"
-
-
-def materia_curta(nome_completo):
-    return nome_completo.split("_")[0]
-
-
-def info_prazo(a, agora):
-    """Devolve (texto_do_chip, cor, texto_prazo) pra uma atividade."""
-    if not a["duedate"]:
-        return "SEM PRAZO", C["apagado"], "sem prazo definido"
-    prazo = datetime.fromtimestamp(a["duedate"]).strftime("%d/%m/%Y")
-    if a["duedate"] < agora:
-        return "VENCIDO", C["vermelho"], prazo
-    dias = (a["duedate"] - agora) // 86400
-    if dias == 0:
-        return "HOJE", C["vermelho"], prazo
-    if dias <= 7:
-        return f"{dias} DIA{'S' if dias != 1 else ''}", C["laranja"], prazo
-    return f"{dias} DIAS", C["verde"], prazo
-
-
-class AreaRolavel(ctk.CTkFrame):
-    """Area com rolagem propria.
-
-    Feita no lugar do CTkScrollableFrame, que usa bind_all: com uma aba por
-    area, toda rolagem disparava o handler das tres abas e andava so ~20px por
-    clique da roda. Aqui a roda e ligada so nos widgets desta area, a barra
-    some quando o conteudo cabe na tela e a posicao e presa dentro do conteudo
-    quando ele encolhe (senao a vista fica parada num espaco vazio).
-    """
-
-    PASSO = 60  # pixels por clique da roda
-
-    def __init__(self, master):
-        super().__init__(master, fg_color="transparent")
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=1)
-
-        self._canvas = tk.Canvas(self, bg=C["fundo"], highlightthickness=0, bd=0,
-                                 yscrollincrement=1)
-        self._canvas.grid(row=0, column=0, sticky="nsew")
-
-        self._barra = ctk.CTkScrollbar(self, orientation="vertical", width=12,
-                                       command=self._canvas.yview, fg_color=C["fundo"],
-                                       button_color=C["borda"], button_hover_color=C["azul"])
-        self._canvas.configure(yscrollcommand=self._barra.set)
-        self._barra_visivel = False
-
-        self.interior = ctk.CTkFrame(self._canvas, fg_color="transparent")
-        self._janela = self._canvas.create_window((0, 0), window=self.interior, anchor="nw")
-
-        self._ajuste_pendente = False
-        self.interior.bind("<Configure>", self._agendar_ajuste)
-        self._canvas.bind("<Configure>", self._canvas_redimensionou)
-        self._canvas.bind("<Map>", self._agendar_ajuste)
-
-    # ---- geometria ----
-    def _canvas_redimensionou(self, evento):
-        self._canvas.itemconfigure(self._janela, width=evento.width)
-        self._agendar_ajuste()
-
-    def _agendar_ajuste(self, _evento=None):
-        # debounce: mostrar/esconder a barra muda a largura e dispara Configure de novo
-        if not self._ajuste_pendente:
-            self._ajuste_pendente = True
-            self.after_idle(self._ajustar)
-
-    def _ajustar(self):
-        self._ajuste_pendente = False
-        if not self._canvas.winfo_exists():
-            return
-        altura = self.interior.winfo_reqheight()
-        visivel = self._canvas.winfo_height()
-        self._canvas.configure(scrollregion=(0, 0, self._canvas.winfo_width(), altura))
-        if visivel <= 1:
-            return  # aba ainda sem layout: o <Map> refaz a conta quando ela aparecer
-
-        precisa = altura > visivel + 1
-        if precisa and not self._barra_visivel:
-            self._barra.grid(row=0, column=1, sticky="ns", padx=(8, 0))
-            self._barra_visivel = True
-        elif not precisa and self._barra_visivel:
-            self._barra.grid_forget()
-            self._barra_visivel = False
-
-        if not precisa:
-            self._canvas.yview_moveto(0)
-        elif self._canvas.canvasy(0) > altura - visivel:
-            self._canvas.yview_moveto((altura - visivel) / altura)
-
-    # ---- roda do mouse ----
-    def rolar(self, delta):
-        """Um clique da roda = PASSO pixels. Quem chama e o handler global do App."""
-        if self._barra_visivel:
-            self._canvas.yview_scroll(int(-delta / 120 * self.PASSO), "units")
-
-    def rolar_paginas(self, quantas):
-        if self._barra_visivel:
-            self._canvas.yview_scroll(int(quantas * self._canvas.winfo_height() * 0.9), "units")
-
-    def ir_para(self, fracao):
-        self._canvas.yview_moveto(fracao)
-
-    def limpar(self):
-        for filho in self.interior.winfo_children():
-            filho.destroy()
-
-    def finalizar(self):
-        """Chamado depois de montar o conteudo."""
-        self._agendar_ajuste()
-
-
-class Chip(ctk.CTkLabel):
-    def __init__(self, master, texto, cor, **kw):
-        super().__init__(master, text=texto, font=(FONTE, 11, "bold"),
-                         text_color=C["fundo"], fg_color=cor,
-                         corner_radius=20, padx=10, pady=2, **kw)
-
-
 class CartaoAtividade(ctk.CTkFrame):
     def __init__(self, master, atividade, agora):
         super().__init__(master, fg_color=C["cartao"], corner_radius=12,
                          border_width=1, border_color=C["borda"])
         self.url = atividade.get("url")
+        self.atividade = atividade
         self._cor = C["cartao"]
         self._conferindo = False
 
@@ -202,6 +72,7 @@ class CartaoAtividade(ctk.CTkFrame):
         # tk.Misc: o bind()/configure() do CustomTkinter desvia pros widgets
         # internos e deixa pedacos do cartao sem responder
         tk.Misc.bind(widget, "<Button-1>", self._abrir)
+        tk.Misc.bind(widget, "<Button-3>", self._abrir_no_ava)  # botao direito vai pro AVA
         tk.Misc.bind(widget, "<Enter>", self._entrou)
         tk.Misc.bind(widget, "<Leave>", self._saiu)
         tk.Misc.configure(widget, cursor="hand2")  # uma vez so, nao a cada hover
@@ -236,7 +107,11 @@ class CartaoAtividade(ctk.CTkFrame):
             self.configure(fg_color=cor)
 
     def _abrir(self, _evento=None):
+        self.winfo_toplevel().abrir_chat(self.atividade)
+
+    def _abrir_no_ava(self, _evento=None):
         webbrowser.open(self.url)
+        return "break"
 
 
 class CartaoResumo(ctk.CTkFrame):
@@ -327,6 +202,8 @@ class App(ctk.CTk):
 
         self.erro_label = None
         self.buscando = False
+        self._chats = {}
+        self._agora = int(time.time())
         self._fila = queue.Queue()
         self._checar_fila()
         self.atualizar()
@@ -346,8 +223,28 @@ class App(ctk.CTk):
         return self.areas[self.abas.get()]
 
     def _roda_global(self, evento):
-        self._area_visivel().rolar(evento.delta)
+        # bind_all vale pra aplicacao toda, entao aqui decidimos qual janela
+        # rola: as de chat expoem area_rolavel; a principal usa a aba visivel
+        try:
+            topo = evento.widget.winfo_toplevel()
+        except Exception:
+            topo = self
+        area = getattr(topo, "area_rolavel", None) or self._area_visivel()
+        area.rolar(evento.delta)
         return "break"
+
+    def abrir_chat(self, atividade):
+        """Abre (ou traz pra frente) a janela de chat da atividade."""
+        chave = atividade["nome"] + "|" + atividade["materia"]
+        janela = self._chats.get(chave)
+        if janela is not None and janela.winfo_exists():
+            janela.deiconify()
+            janela.lift()
+            janela.focus_force()
+            return janela
+        janela = JanelaChat(self, atividade, self._agora, icone=ICONE if os.path.exists(ICONE) else None)
+        self._chats[chave] = janela
+        return janela
 
     # ---- busca em thread pra nao travar a janela ----
     def atualizar(self):
@@ -403,6 +300,7 @@ class App(ctk.CTk):
 
     def _mostrar(self, dados):
         self._fim_busca()
+        self._agora = dados["agora"]
         if self.erro_label is not None and self.erro_label.winfo_exists():
             self.erro_label.destroy()
         self.status.configure(text="Atualizado as " + datetime.now().strftime("%H:%M"),
@@ -443,7 +341,8 @@ class App(ctk.CTk):
             for nome_mod, descricao in nov["itens"]:
                 ctk.CTkLabel(bloco, text=f"•  {nome_mod}  —  {descricao}", font=(FONTE, 12),
                              text_color=C["texto"], anchor="w", justify="left",
-                             wraplength=760).pack(fill="x", padx=22, pady=(0, 4))
+                             wraplength=wrap(self.winfo_width() - 130, self)
+                             ).pack(fill="x", padx=22, pady=(0, 4))
             ctk.CTkFrame(bloco, fg_color="transparent", height=6).pack()
         self.aba_novidades.finalizar()
 

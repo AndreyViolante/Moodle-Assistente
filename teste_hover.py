@@ -113,12 +113,19 @@ def etapa():
     checar("cursor de mao em todo o cartao", todos_mao,
            f"{sum(1 for v in cursores.values() if v == 'hand2')}/{len(cursores)}")
 
-    abertos = []
-    app_mod.webbrowser.open = lambda u: abertos.append(u)
+    chats = []
+    a.abrir_chat = lambda ativ: chats.append(ativ["nome"])
     for w in list(descendentes(cartao))[:8]:
         w.event_generate("<Button-1>")
     a.update()
-    checar("clique abre o link em qualquer parte do cartao", len(abertos) == 8, f"{len(abertos)}/8")
+    checar("clique abre o chat em qualquer parte do cartao", len(chats) == 8, f"{len(chats)}/8")
+
+    no_ava = []
+    app_mod.webbrowser.open = lambda u: no_ava.append(u)
+    for w in list(descendentes(cartao))[:4]:
+        w.event_generate("<Button-3>")
+    a.update()
+    checar("botao direito abre no AVA", len(no_ava) == 4, f"{len(no_ava)}/4")
 
     type(cartao).configure = orig
     a.quit()
