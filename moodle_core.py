@@ -54,7 +54,8 @@ def coletar():
             except KeyError:
                 submission_status = "desconhecido"
             atividades.append({"materia": course["fullname"], "nome": a["name"],
-                               "duedate": a["duedate"], "status": submission_status})
+                               "duedate": a["duedate"], "status": submission_status,
+                               "url": f"{MOODLE_URL}/mod/assign/view.php?id={a['cmid']}" if a.get("cmid") else None})
 
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE) as f:
