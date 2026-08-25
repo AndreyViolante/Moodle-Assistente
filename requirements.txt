@@ -2,3 +2,6 @@ requests
 python-dotenv
 customtkinter
 windows-toasts
+
+# so pra rodar gerar_icone.py; o app carrega o icone.ico ja pronto
+# pillow

@@ -4,6 +4,8 @@ Abre uma janela, busca os dados assim que inicia e re-atualiza sozinha a cada 30
 Clicar num cartao de atividade abre ela direto no Moodle.
 Feita pra rodar na inicializacao do Windows via atalho na pasta Startup (com pythonw).
 """
+import ctypes
+import os
 import queue
 import threading
 import tkinter as tk
@@ -16,6 +18,13 @@ import moodle_core
 import notificacoes
 
 ATUALIZA_CADA_MS = 30 * 60 * 1000  # 30 minutos
+ICONE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icone.ico")
+
+# sem isso a barra de tarefas mostra o icone generico do Python, e nao o nosso
+try:
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("AndreyViolante.AssistenteMoodle")
+except Exception:
+    pass
 
 ctk.set_appearance_mode("dark")
 
@@ -246,6 +255,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__(fg_color=C["fundo"])
         self.title("Assistente Moodle - Univassouras")
+        self._aplicar_icone()
         # o CTk multiplica a geometria pela escala do Windows; divide antes pra janela caber na tela
         s = ctk.ScalingTracker.get_window_scaling(self)
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
@@ -321,6 +331,16 @@ class App(ctk.CTk):
         self._checar_fila()
         self.atualizar()
         self.after(ATUALIZA_CADA_MS, self._atualizacao_periodica)
+
+    def _aplicar_icone(self):
+        if not os.path.exists(ICONE):
+            return
+        try:
+            self.iconbitmap(ICONE)
+            # o CustomTkinter repoe o icone dele depois que a janela abre
+            self.after(300, lambda: self.iconbitmap(ICONE))
+        except Exception:
+            pass
 
     def _area_visivel(self):
         return self.areas[self.abas.get()]
