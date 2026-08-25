@@ -1,0 +1,10 @@
+# segredos — o token do Moodle fica so na maquina
+.env
+
+# estado/saida local
+last_check.json
+saida.txt
+
+# python
+__pycache__/
+*.pyc
