@@ -4,13 +4,16 @@ Abre uma janela, busca os dados assim que inicia e re-atualiza sozinha a cada 30
 Clicar num cartao de atividade abre ela direto no Moodle.
 Feita pra rodar na inicializacao do Windows via atalho na pasta Startup (com pythonw).
 """
+import queue
 import threading
+import tkinter as tk
 import webbrowser
 from datetime import datetime
 
 import customtkinter as ctk
 
 import moodle_core
+import notificacoes
 
 ATUALIZA_CADA_MS = 30 * 60 * 1000  # 30 minutos
 
@@ -50,6 +53,110 @@ def info_prazo(a, agora):
     if dias <= 7:
         return f"{dias} DIA{'S' if dias != 1 else ''}", C["laranja"], prazo
     return f"{dias} DIAS", C["verde"], prazo
+
+
+class AreaRolavel(ctk.CTkFrame):
+    """Area com rolagem propria.
+
+    Feita no lugar do CTkScrollableFrame, que usa bind_all: com uma aba por
+    area, toda rolagem disparava o handler das tres abas e andava so ~20px por
+    clique da roda. Aqui a roda e ligada so nos widgets desta area, a barra
+    some quando o conteudo cabe na tela e a posicao e presa dentro do conteudo
+    quando ele encolhe (senao a vista fica parada num espaco vazio).
+    """
+
+    PASSO = 60  # pixels por clique da roda
+
+    def __init__(self, master):
+        super().__init__(master, fg_color="transparent")
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        self._canvas = tk.Canvas(self, bg=C["fundo"], highlightthickness=0, bd=0,
+                                 yscrollincrement=1)
+        self._canvas.grid(row=0, column=0, sticky="nsew")
+
+        self._barra = ctk.CTkScrollbar(self, orientation="vertical", width=12,
+                                       command=self._canvas.yview, fg_color=C["fundo"],
+                                       button_color=C["borda"], button_hover_color=C["azul"])
+        self._canvas.configure(yscrollcommand=self._barra.set)
+        self._barra_visivel = False
+
+        self.interior = ctk.CTkFrame(self._canvas, fg_color="transparent")
+        self._janela = self._canvas.create_window((0, 0), window=self.interior, anchor="nw")
+
+        self._ajuste_pendente = False
+        self.interior.bind("<Configure>", self._agendar_ajuste)
+        self._canvas.bind("<Configure>", self._canvas_redimensionou)
+        self._canvas.bind("<Map>", self._agendar_ajuste)
+        self._canvas.bind("<MouseWheel>", self._roda)
+
+    # ---- geometria ----
+    def _canvas_redimensionou(self, evento):
+        self._canvas.itemconfigure(self._janela, width=evento.width)
+        self._agendar_ajuste()
+
+    def _agendar_ajuste(self, _evento=None):
+        # debounce: mostrar/esconder a barra muda a largura e dispara Configure de novo
+        if not self._ajuste_pendente:
+            self._ajuste_pendente = True
+            self.after_idle(self._ajustar)
+
+    def _ajustar(self):
+        self._ajuste_pendente = False
+        if not self._canvas.winfo_exists():
+            return
+        altura = self.interior.winfo_reqheight()
+        visivel = self._canvas.winfo_height()
+        self._canvas.configure(scrollregion=(0, 0, self._canvas.winfo_width(), altura))
+        if visivel <= 1:
+            return  # aba ainda sem layout: o <Map> refaz a conta quando ela aparecer
+
+        precisa = altura > visivel + 1
+        if precisa and not self._barra_visivel:
+            self._barra.grid(row=0, column=1, sticky="ns", padx=(8, 0))
+            self._barra_visivel = True
+        elif not precisa and self._barra_visivel:
+            self._barra.grid_forget()
+            self._barra_visivel = False
+
+        if not precisa:
+            self._canvas.yview_moveto(0)
+        elif self._canvas.canvasy(0) > altura - visivel:
+            self._canvas.yview_moveto((altura - visivel) / altura)
+
+    # ---- roda do mouse ----
+    def _roda(self, evento):
+        if self._barra_visivel:
+            self._canvas.yview_scroll(int(-evento.delta / 120 * self.PASSO), "units")
+        return "break"
+
+    def registrar_roda(self, widget=None):
+        """Liga a roda do mouse em todo o conteudo: quem recebe o evento e o
+        widget sob o cursor, nao o canvas. Vai por tk.Misc.bind porque o bind()
+        do CustomTkinter desvia pros widgets internos e deixa buracos na arvore."""
+        widget = widget or self.interior
+        # substitui em vez de somar: o interior sobrevive as atualizacoes e
+        # acumularia um handler a cada 30 min, multiplicando a rolagem
+        tk.Misc.bind(widget, "<MouseWheel>", self._roda)
+        for filho in widget.winfo_children():
+            self.registrar_roda(filho)
+
+    def rolar_paginas(self, quantas):
+        if self._barra_visivel:
+            self._canvas.yview_scroll(int(quantas * self._canvas.winfo_height() * 0.9), "units")
+
+    def ir_para(self, fracao):
+        self._canvas.yview_moveto(fracao)
+
+    def limpar(self):
+        for filho in self.interior.winfo_children():
+            filho.destroy()
+
+    def finalizar(self):
+        """Chamado depois de montar o conteudo."""
+        self.registrar_roda()
+        self._agendar_ajuste()
 
 
 class Chip(ctk.CTkLabel):
@@ -171,14 +278,23 @@ class App(ctk.CTk):
                                    text_color=C["texto"], corner_radius=12)
         self.abas.pack(fill="both", expand=True, padx=16, pady=(4, 16))
         self.abas._segmented_button.configure(font=(FONTE, 13, "bold"))
+        self.areas = {}
         for nome in ("Prioridades", "Novidades", "Todas"):
-            aba = self.abas.add(nome)
-            rolagem = ctk.CTkScrollableFrame(aba, fg_color="transparent")
-            rolagem.pack(fill="both", expand=True)
-            setattr(self, "aba_" + nome.lower(), rolagem)
+            area = AreaRolavel(self.abas.add(nome))
+            area.pack(fill="both", expand=True)
+            self.areas[nome] = area
+            setattr(self, "aba_" + nome.lower(), area)
+
+        for tecla, acao in (("<Prior>", lambda a: a.rolar_paginas(-1)),
+                            ("<Next>", lambda a: a.rolar_paginas(1)),
+                            ("<Home>", lambda a: a.ir_para(0)),
+                            ("<End>", lambda a: a.ir_para(1))):
+            self.bind(tecla, lambda e, f=acao: f(self.areas[self.abas.get()]))
 
         self.erro_label = None
         self.buscando = False
+        self._fila = queue.Queue()
+        self._checar_fila()
         self.atualizar()
         self.after(ATUALIZA_CADA_MS, self._atualizacao_periodica)
 
@@ -194,11 +310,21 @@ class App(ctk.CTk):
         threading.Thread(target=self._buscar, daemon=True).start()
 
     def _buscar(self):
+        # so entrega o resultado pela fila: mexer no Tk fora da thread principal
+        # (inclusive com after) pode quebrar o interpretador num app que fica dias ligado
         try:
-            dados = moodle_core.coletar()
-            self.after(0, self._mostrar, dados)
+            self._fila.put(("ok", moodle_core.coletar()))
         except Exception as e:
-            self.after(0, self._mostrar_erro, str(e))
+            self._fila.put(("erro", str(e)))
+
+    def _checar_fila(self):
+        try:
+            while True:
+                tipo, carga = self._fila.get_nowait()
+                self._mostrar(carga) if tipo == "ok" else self._mostrar_erro(carga)
+        except queue.Empty:
+            pass
+        self.after(150, self._checar_fila)
 
     def _atualizacao_periodica(self):
         self.atualizar()
@@ -210,12 +336,8 @@ class App(ctk.CTk):
         self.progresso.pack_forget()
         self.botao.configure(state="normal", text="Atualizar")
 
-    def _limpar(self, quadro):
-        for filho in quadro.winfo_children():
-            filho.destroy()
-
-    def _aviso(self, quadro, texto, cor=None):
-        ctk.CTkLabel(quadro, text=texto, font=(FONTE, 13),
+    def _aviso(self, area, texto, cor=None):
+        ctk.CTkLabel(area.interior, text=texto, font=(FONTE, 13),
                      text_color=cor or C["apagado"]).pack(pady=24)
 
     # ---- renderizacao ----
@@ -240,6 +362,7 @@ class App(ctk.CTk):
         vencidas = [p for p in pendentes if p["duedate"] and p["duedate"] < agora]
         entregues = [a for a in atividades if a["status"] == "submitted"]
         com_prazo_futuro = [p for p in pendentes if p["duedate"] and p["duedate"] >= agora]
+        notificacoes.processar(dados, pendentes)
 
         self.r_pendentes.set(len(pendentes))
         self.r_vencidas.set(len(vencidas))
@@ -250,17 +373,18 @@ class App(ctk.CTk):
         else:
             self.r_proximo.set("—")
 
-        self._limpar(self.aba_prioridades)
+        self.aba_prioridades.limpar()
         if not pendentes:
             self._aviso(self.aba_prioridades, "Nenhuma atividade pendente. Tudo em dia!", C["verde"])
         for p in pendentes:
-            CartaoAtividade(self.aba_prioridades, p, agora).pack(fill="x", pady=(0, 8))
+            CartaoAtividade(self.aba_prioridades.interior, p, agora).pack(fill="x", pady=(0, 8))
+        self.aba_prioridades.finalizar()
 
-        self._limpar(self.aba_novidades)
+        self.aba_novidades.limpar()
         if not dados["novidades"]:
             self._aviso(self.aba_novidades, "Nada novo desde a ultima checagem.")
         for nov in dados["novidades"]:
-            bloco = ctk.CTkFrame(self.aba_novidades, fg_color=C["cartao"], corner_radius=12,
+            bloco = ctk.CTkFrame(self.aba_novidades.interior, fg_color=C["cartao"], corner_radius=12,
                                  border_width=1, border_color=C["borda"])
             bloco.pack(fill="x", pady=(0, 8))
             ctk.CTkLabel(bloco, text=materia_curta(nov["curso"]), font=(FONTE, 14, "bold"),
@@ -270,10 +394,12 @@ class App(ctk.CTk):
                              text_color=C["texto"], anchor="w", justify="left",
                              wraplength=760).pack(fill="x", padx=22, pady=(0, 4))
             ctk.CTkFrame(bloco, fg_color="transparent", height=6).pack()
+        self.aba_novidades.finalizar()
 
-        self._limpar(self.aba_todas)
+        self.aba_todas.limpar()
         for a in sorted(atividades, key=lambda x: x["duedate"] or float("inf")):
-            CartaoAtividade(self.aba_todas, a, agora).pack(fill="x", pady=(0, 8))
+            CartaoAtividade(self.aba_todas.interior, a, agora).pack(fill="x", pady=(0, 8))
+        self.aba_todas.finalizar()
 
 
 if __name__ == "__main__":

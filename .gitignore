@@ -3,6 +3,7 @@
 
 # estado/saida local
 last_check.json
+notificados.json
 saida.txt
 
 # python
