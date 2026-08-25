@@ -89,7 +89,6 @@ class AreaRolavel(ctk.CTkFrame):
         self.interior.bind("<Configure>", self._agendar_ajuste)
         self._canvas.bind("<Configure>", self._canvas_redimensionou)
         self._canvas.bind("<Map>", self._agendar_ajuste)
-        self._canvas.bind("<MouseWheel>", self._roda)
 
     # ---- geometria ----
     def _canvas_redimensionou(self, evento):
@@ -126,21 +125,10 @@ class AreaRolavel(ctk.CTkFrame):
             self._canvas.yview_moveto((altura - visivel) / altura)
 
     # ---- roda do mouse ----
-    def _roda(self, evento):
+    def rolar(self, delta):
+        """Um clique da roda = PASSO pixels. Quem chama e o handler global do App."""
         if self._barra_visivel:
-            self._canvas.yview_scroll(int(-evento.delta / 120 * self.PASSO), "units")
-        return "break"
-
-    def registrar_roda(self, widget=None):
-        """Liga a roda do mouse em todo o conteudo: quem recebe o evento e o
-        widget sob o cursor, nao o canvas. Vai por tk.Misc.bind porque o bind()
-        do CustomTkinter desvia pros widgets internos e deixa buracos na arvore."""
-        widget = widget or self.interior
-        # substitui em vez de somar: o interior sobrevive as atualizacoes e
-        # acumularia um handler a cada 30 min, multiplicando a rolagem
-        tk.Misc.bind(widget, "<MouseWheel>", self._roda)
-        for filho in widget.winfo_children():
-            self.registrar_roda(filho)
+            self._canvas.yview_scroll(int(-delta / 120 * self.PASSO), "units")
 
     def rolar_paginas(self, quantas):
         if self._barra_visivel:
@@ -155,7 +143,6 @@ class AreaRolavel(ctk.CTkFrame):
 
     def finalizar(self):
         """Chamado depois de montar o conteudo."""
-        self.registrar_roda()
         self._agendar_ajuste()
 
 
@@ -285,11 +272,16 @@ class App(ctk.CTk):
             self.areas[nome] = area
             setattr(self, "aba_" + nome.lower(), area)
 
+        # No Windows o Tk entrega a roda pro widget com FOCO, nao pro que esta
+        # sob o cursor - e o foco fica no toplevel. Por isso a ligacao tem que
+        # ser global (bind_all) e despachar pra aba visivel; ligar nos widgets
+        # do conteudo simplesmente nao recebe nada.
+        tk.Misc.bind_all(self, "<MouseWheel>", self._roda_global)
         for tecla, acao in (("<Prior>", lambda a: a.rolar_paginas(-1)),
                             ("<Next>", lambda a: a.rolar_paginas(1)),
                             ("<Home>", lambda a: a.ir_para(0)),
                             ("<End>", lambda a: a.ir_para(1))):
-            self.bind(tecla, lambda e, f=acao: f(self.areas[self.abas.get()]))
+            self.bind(tecla, lambda e, f=acao: f(self._area_visivel()))
 
         self.erro_label = None
         self.buscando = False
@@ -297,6 +289,13 @@ class App(ctk.CTk):
         self._checar_fila()
         self.atualizar()
         self.after(ATUALIZA_CADA_MS, self._atualizacao_periodica)
+
+    def _area_visivel(self):
+        return self.areas[self.abas.get()]
+
+    def _roda_global(self, evento):
+        self._area_visivel().rolar(evento.delta)
+        return "break"
 
     # ---- busca em thread pra nao travar a janela ----
     def atualizar(self):
