@@ -37,6 +37,9 @@ def post_falso(url, params=None, json=None, timeout=None):
 
 
 ia.requests.post = post_falso
+# sem isso o fallback de modelo faria uma chamada de rede real na listagem
+ia.requests.get = lambda *a, **k: (_ for _ in ()).throw(
+    ia.requests.exceptions.ConnectionError("sem rede no teste"))
 
 # o anexo e baixado de mentira, pra o teste nao depender da rede
 moodle_core.baixar = lambda url, timeout=60: b"%PDF-1.4 conteudo de teste"
@@ -47,9 +50,17 @@ from janela_chat import Bolha
 falhas = []
 
 
+def imprimivel(texto):
+    """O console do Windows e cp1252 e engasga com emoji (o anexo usa um)."""
+    codec = sys.stdout.encoding or "utf-8"
+    return str(texto).encode(codec, "replace").decode(codec, "replace")
+
+
 def checar(rotulo, ok, detalhe=""):
-    print(("  OK   " if ok else "  FALHA") + f"  {rotulo}" + (f"  [{detalhe}]" if detalhe else ""),
-          flush=True)
+    linha = ("  OK   " if ok else "  FALHA") + f"  {rotulo}"
+    if detalhe:
+        linha += f"  [{imprimivel(detalhe)}]"
+    print(linha, flush=True)
     if not ok:
         falhas.append(rotulo)
 

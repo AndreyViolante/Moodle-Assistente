@@ -8,6 +8,7 @@ import os
 import queue
 import tempfile
 import threading
+import time
 import tkinter as tk
 import webbrowser
 
@@ -314,13 +315,24 @@ class JanelaChat(ctk.CTkToplevel):
         for b in self.sugestoes.winfo_children():
             b.configure(state="disabled" if ocupado else "normal")
         if ocupado:
+            self._rotulo_espera = rotulo
+            self._inicio_espera = time.time()
             if getattr(self, "_pensando", None) is None or not self._pensando.winfo_exists():
                 self._pensando = self._aviso(f"{rotulo}...", C["roxo"])
-            else:
-                self._pensando.configure(text=f"{rotulo}...")
+            self._contar_espera()
         elif getattr(self, "_pensando", None) is not None and self._pensando.winfo_exists():
             self._pensando.destroy()
             self._pensando = None
+
+    def _contar_espera(self):
+        """Mostra os segundos: com PDF a resposta demora, e sem sinal de vida
+        parece que travou."""
+        if not self.ocupado or self._pensando is None or not self._pensando.winfo_exists():
+            return
+        s = int(time.time() - self._inicio_espera)
+        extra = "  (modelos lentos hoje, ja ja troco de modelo)" if s > 40 else ""
+        self._pensando.configure(text=f"{self._rotulo_espera}...  {s}s{extra}")
+        self.after(1000, self._contar_espera)
 
     # ---------- envio ----------
     def _tecla_enter(self, evento):

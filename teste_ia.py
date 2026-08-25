@@ -116,7 +116,102 @@ try:
     c3.enviar("oi")
     checar("erro 429 vira ErroIA", False)
 except ia.ErroIA as e:
-    checar("erro 429 fala de limite", "limite" in str(e).lower(), str(e)[:60])
+    checar("erro 429 fala de cota", "cota" in str(e).lower(), str(e)[:60])
+
+print("\n=== escolha de modelo ===")
+LISTA = {"models": [{"name": "models/" + n, "supportedGenerationMethods": ["generateContent"]}
+                    for n in ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.7-flash",
+                              "gemini-3.1-pro-preview-customtools", "gemini-2.5-flash-preview-tts",
+                              "gemini-3.1-flash-image", "gemma-4-31b-it", "gemini-3.5-flash-lite",
+                              "lyria-3-pro-preview", "gemini-2.5-computer-use-preview-10-2025"]]}
+
+
+class ListaFalsa:
+    status_code = 200
+
+    def json(self):
+        return LISTA
+
+
+ia.requests.get = lambda *a, **k: ListaFalsa()
+uteis = ia.modelos()
+print("  ->", uteis)
+checar("descarta modelo de audio (tts)", not any("tts" in m for m in uteis))
+checar("descarta modelo de imagem", not any("image" in m for m in uteis))
+checar("descarta o customtools, que so devolvia 429",
+       not any("customtools" in m for m in uteis))
+checar("descarta gemma e lyria", not any(m.startswith(("gemma", "lyria")) for m in uteis))
+checar("descarta computer-use", not any("computer-use" in m for m in uteis))
+checar("mais novo antes do mais velho",
+       uteis.index("gemini-3.7-flash") < uteis.index("gemini-2.5-flash"))
+checar("flash antes de flash-lite na mesma geracao",
+       uteis.index("gemini-3.5-flash") < uteis.index("gemini-3.5-flash-lite"))
+
+fila = list(ia.candidatos("gemini-3.5-flash"))
+checar("tenta primeiro o modelo preferido", fila[0] == "gemini-3.5-flash", str(fila))
+checar("nao repete modelo na fila", len(fila) == len(set(fila)))
+checar("limita o numero de tentativas", len(fila) <= ia.MAX_TENTATIVAS, str(len(fila)))
+
+print("\n=== modelo aposentado cai pro proximo (foi o bug do 429) ===")
+ia._ultimo_que_funcionou = None
+tentados = []
+
+
+def post_encadeado(url, params=None, json=None, timeout=None):
+    modelo = url.split("/models/")[1].split(":")[0]
+    tentados.append(modelo)
+    if modelo == "gemini-2.5-flash":
+        return RespostaErro(404, "This model is no longer available to new users.")
+    if "customtools" in modelo:
+        return RespostaErro(429, "You exceeded your current quota")
+    return RespostaFalsa("Resposta do modelo novo.")
+
+
+ia.requests.post = post_encadeado
+ia.MODELO_PADRAO = "gemini-2.5-flash"
+c4 = ia.Conversa(atividade, "x")
+resposta4 = c4.enviar("oi")
+print("  modelos tentados:", tentados)
+checar("tentou o aposentado primeiro", tentados[0] == "gemini-2.5-flash")
+checar("caiu pro seguinte e respondeu", resposta4 == "Resposta do modelo novo.")
+checar("guardou o modelo que funcionou", ia._ultimo_que_funcionou == c4.modelo)
+checar("a pergunta ficou no historico", len(c4.historico) == 2, str(len(c4.historico)))
+
+print("\n=== proxima conversa ja comeca no modelo que funcionou ===")
+tentados.clear()
+c5 = ia.Conversa(atividade, "x")
+c5.enviar("oi")
+checar("nao tenta o aposentado de novo", "gemini-2.5-flash" not in tentados, str(tentados))
+
+print("\n=== quando nenhum modelo responde ===")
+ia.requests.post = lambda *a, **k: RespostaErro(503, "high demand")
+c6 = ia.Conversa(atividade, "x")
+try:
+    c6.enviar("oi")
+    checar("erra quando todos falham", False, "nao levantou")
+except ia.ErroIA as e:
+    checar("avisa que nenhum modelo respondeu",
+           "sobrecarregado" in str(e).lower() or "disponivel" in str(e).lower(), str(e)[:60])
+checar("nao deixa pergunta orfa no historico", len(c6.historico) == 0)
+
+print("\n=== 429 informa quanto esperar ===")
+
+
+class Erro429:
+    status_code = 429
+    text = "quota"
+
+    def json(self):
+        return {"error": {"message": "quota", "details": [{"retryDelay": "27s"}]}}
+
+
+ia.requests.post = lambda *a, **k: Erro429()
+c7 = ia.Conversa(atividade, "x")
+try:
+    c7.enviar("oi")
+    checar("429 vira erro", False)
+except ia.ErroIA as e:
+    checar("diz quanto tempo esperar", "27s" in str(e), str(e)[:70])
 
 print("\n=== sem chave configurada ===")
 os.environ["GEMINI_API_KEY"] = ""
