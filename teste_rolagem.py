@@ -19,7 +19,9 @@ FAKE = {
     "agora": agora,
     "atividades": [{"materia": f"Materia {i % 3}_Eng.Soft06", "nome": f"Atividade numero {i}",
                     "duedate": agora + (i + 5) * 86400, "status": "new", "url": "https://x/y"}
-                   for i in range(20)],
+                   # 45 atividades: com uma linha por atividade cabem muitas na
+                   # tela, e um cenario menor nem geraria rolagem
+                   for i in range(45)],
     "novidades": [],
 }
 moodle_core.coletar = lambda: FAKE
@@ -124,6 +126,8 @@ def etapa():
 
     print("\n=== teclado ===")
     a.abas.set("Prioridades")
+    a.update()
+    time.sleep(0.3)  # deixa a aba assentar: sem altura, Page Down nao anda
     a.update()
     prio.ir_para(0)
     a.update()

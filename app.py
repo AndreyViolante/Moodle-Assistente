@@ -23,7 +23,7 @@ import moodle_core
 import notificacoes
 from janela_chat import JanelaChat
 from ui import (C, FONTE, T_CORPO, T_MIUDO, T_TITULO, Abas, AreaRolavel, BotaoTexto,
-                RotuloSecao, fio, info_prazo, materia_curta, wrap)
+                RotuloSecao, encurtar, fio, fonte_medida, info_prazo, materia_curta)
 
 ATUALIZA_CADA_MS = 30 * 60 * 1000  # 30 minutos
 ICONE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icone.ico")
@@ -48,7 +48,7 @@ class LinhaAtividade(ctk.CTkFrame):
     espacamento. Cabe mais coisa na tela e nada disputa atencao com o prazo.
     """
 
-    ALTURA = 26  # marcador lateral; a linha cresce com o texto
+    ALTURA = 16  # altura do marcador lateral
 
     def __init__(self, master, atividade, agora, ocultar_sem_prazo=False):
         super().__init__(master, fg_color="transparent", corner_radius=4)
@@ -66,46 +66,53 @@ class LinhaAtividade(ctk.CTkFrame):
                               and not entregue else None)
         self._marcador = tk.Frame(self, width=2, height=self.ALTURA,
                                   bg=self._cor_marcador or C["fundo"])
-        self._marcador.pack(side="left", fill="y", padx=(0, 12), pady=7)
+        self._marcador.pack(side="left", fill="y", padx=(0, 12), pady=8)
 
         if urgencia == "sem" and ocultar_sem_prazo:
             rel = ""  # na aba Prioridades a secao ja se chama "Sem prazo"
-        # so cria a coluna do prazo se houver o que mostrar: CTkFrame vazio
-        # assume os 200x200 padrao e transforma a linha num bloco enorme
-        if rel or data:
-            prazo = ctk.CTkFrame(self, fg_color="transparent", width=1, height=1)
-            prazo.pack(side="right", padx=(12, 12), pady=7)
-            if rel:
-                ctk.CTkLabel(prazo, text=rel, font=(FONTE, T_MIUDO), height=15,
-                             text_color=C["texto3"] if entregue else cor,
-                             anchor="e").pack(anchor="e")
-            if data:
-                ctk.CTkLabel(prazo, text=data, font=(FONTE, T_MIUDO), height=15,
-                             text_color=C["texto3"], anchor="e").pack(anchor="e")
 
-        corpo = ctk.CTkFrame(self, fg_color="transparent")
-        corpo.pack(side="left", fill="x", expand=True, pady=(7, 8))
-        linha1 = ctk.CTkFrame(corpo, fg_color="transparent")
-        linha1.pack(fill="x")
+        # Coluna do prazo, a direita, sempre com a mesma largura mesmo quando
+        # falta o relativo ou a data: e o que mantem a coluna da materia
+        # alinhada de uma linha pra outra.
+        prazo = ctk.CTkFrame(self, fg_color="transparent", width=1, height=1)
+        prazo.pack(side="right", padx=(10, 12))
+        ctk.CTkLabel(prazo, text=data, font=(FONTE, T_MIUDO), height=16, width=48,
+                     text_color=C["texto3"], anchor="e").pack(side="right")
+        ctk.CTkLabel(prazo, text=rel, font=(FONTE, T_MIUDO), height=16, width=66,
+                     text_color=C["texto3"] if entregue else cor,
+                     anchor="e").pack(side="right", padx=(0, 10))
+
         if entregue:
-            ctk.CTkLabel(linha1, text="✓", font=(FONTE, T_CORPO), height=18,
-                         text_color=C["ok"], width=14).pack(side="left", padx=(0, 4))
-        self.rot_nome = ctk.CTkLabel(
-            linha1, text=atividade["nome"], font=(FONTE, T_TITULO), height=18,
-            text_color=C["texto3"] if entregue else C["texto"], anchor="w", justify="left")
-        self.rot_nome.pack(side="left", fill="x", expand=True)
+            ctk.CTkLabel(self, text="✓", font=(FONTE, T_CORPO), height=16, width=14,
+                         text_color=C["ok"]).pack(side="left", padx=(0, 4))
 
-        rodape = materia_curta(atividade["materia"])
+        # nome a esquerda, materia encostada na coluna do prazo: alinhadas, as
+        # materias viram uma coluna que da pra varrer com o olho
+        self._nome = atividade["nome"]
+        self._materia = materia_curta(atividade["materia"])
         if atividade.get("anexos"):
             n = len(atividade["anexos"])
-            rodape += f"   ·   {n} anexo" + ("s" if n > 1 else "")
-        ctk.CTkLabel(corpo, text=rodape, font=(FONTE, T_MIUDO), height=15,
-                     text_color=C["texto2"], anchor="w").pack(fill="x", pady=(1, 0))
+            self._materia += f"  ·  {n} anexo" + ("s" if n > 1 else "")
+        self.rot_materia = ctk.CTkLabel(self, text=self._materia, font=(FONTE, T_MIUDO),
+                                        height=16, text_color=C["texto2"], anchor="e")
+        self.rot_materia.pack(side="right", padx=(10, 0))
+        self.rot_nome = ctk.CTkLabel(
+            self, text=self._nome, font=(FONTE, T_TITULO), height=16,
+            text_color=C["texto3"] if entregue else C["texto"], anchor="w")
+        self.rot_nome.pack(side="left", fill="x", expand=True)
 
         self._ligar(self)
 
     def ajustar_largura(self, px):
-        self.rot_nome.configure(wraplength=wrap(px, self))
+        """Divide a largura entre nome e materia. A materia cede primeiro: e a
+        informacao secundaria da linha."""
+        px = max(160, px)
+        f_nome = fonte_medida(T_TITULO)
+        f_mat = fonte_medida(T_MIUDO)
+        largura_mat = min(f_mat.measure(self._materia), int(px * 0.46))
+        self.rot_materia.configure(text=encurtar(self._materia, f_mat, largura_mat))
+        self.rot_nome.configure(
+            text=encurtar(self._nome, f_nome, px - largura_mat - 20))
 
     # ---- clique e hover ----
     def _ligar(self, widget):
@@ -251,7 +258,7 @@ class App(ctk.CTk):
     def _largura_mudou(self, evento):
         if evento.widget is not self:
             return
-        largura = max(240, evento.width - 260)
+        largura = max(200, evento.width - 230)
         if abs(largura - getattr(self, "_ultima_largura", 0)) < 16:
             return
         self._ultima_largura = largura

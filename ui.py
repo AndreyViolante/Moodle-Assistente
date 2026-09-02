@@ -5,6 +5,7 @@ informacao (o quao perto esta o prazo), nao enfeite - por isso nada de fundo
 colorido, badge chapado ou numero gigante.
 """
 import tkinter as tk
+import tkinter.font as tkfont
 from datetime import datetime
 
 import customtkinter as ctk
@@ -47,6 +48,36 @@ def wrap(pixels, widget):
     """
     escala = ctk.ScalingTracker.get_widget_scaling(widget) or 1.0
     return int(max(120, pixels) / escala)
+
+
+_fontes = {}
+
+
+def fonte_medida(tamanho, peso="normal"):
+    """Font do Tk (com cache) so pra medir texto em pixels."""
+    chave = (tamanho, peso)
+    if chave not in _fontes:
+        _fontes[chave] = tkfont.Font(family=FONTE, size=tamanho, weight=peso)
+    return _fontes[chave]
+
+
+def encurtar(texto, fonte, limite_px):
+    """Corta com reticencias no fim, medindo a fonte de verdade.
+
+    O Tk nao encurta sozinho: sem isso o texto so seria cortado no meio de uma
+    letra quando faltasse espaco.
+    """
+    if limite_px <= 0 or fonte.measure(texto) <= limite_px:
+        return texto
+    reticencias = fonte.measure("…")
+    baixo, alto = 0, len(texto)
+    while baixo < alto:
+        meio = (baixo + alto + 1) // 2
+        if fonte.measure(texto[:meio]) + reticencias <= limite_px:
+            baixo = meio
+        else:
+            alto = meio - 1
+    return texto[:baixo].rstrip() + "…" if baixo else "…"
 
 
 def info_prazo(a, agora):
@@ -238,8 +269,14 @@ class AreaRolavel(ctk.CTkFrame):
             self._canvas.yview_scroll(int(-delta / 120 * self.PASSO), "units")
 
     def rolar_paginas(self, quantas):
-        if self._barra_visivel:
-            self._canvas.yview_scroll(int(quantas * self._canvas.winfo_height() * 0.9), "units")
+        """Page Up/Down. Se a aba acabou de aparecer o canvas ainda pode estar
+        sem altura; nesse caso rola um tanto fixo em vez de nao rolar nada."""
+        if not self._barra_visivel:
+            return
+        altura = self._canvas.winfo_height()
+        if altura <= 1:
+            altura = 400
+        self._canvas.yview_scroll(int(quantas * altura * 0.9), "units")
 
     def ir_para(self, fracao):
         self._canvas.yview_moveto(fracao)
