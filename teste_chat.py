@@ -117,7 +117,10 @@ def textos(janela):
 @passo
 def etapa1():
     print("=== abrir pelo cartao ===", flush=True)
-    cartao = a.areas["Prioridades"].interior.winfo_children()[0]
+    # o primeiro filho e o cabecalho da secao; a linha da atividade vem depois
+    from app import LinhaAtividade
+    cartao = next(w for w in a.areas["Prioridades"].interior.winfo_children()
+                  if isinstance(w, LinhaAtividade))
     cartao.event_generate("<Button-1>")
     a.update()
     janela = a._chats.get(ATIVIDADE["nome"] + "|" + ATIVIDADE["materia"])
@@ -238,7 +241,7 @@ def etapa_copiar(janela):
                repr(copiado[:40]))
         checar("copia o corpo inteiro", "def criar" in copiado and "pass" in copiado)
         checar("nao leva a marcacao markdown", "```" not in copiado)
-        checar("avisa que copiou", rotulo(bt_codigo[0]) == "copiado!", rotulo(bt_codigo[0]))
+        checar("avisa que copiou", rotulo(bt_codigo[0]) == "copiado", rotulo(bt_codigo[0]))
 
     bt_tudo = [x for x in bts if rotulo(x) == "copiar resposta"]
     checar("a resposta inteira tem botao", len(bt_tudo) == 1, str(len(bt_tudo)))

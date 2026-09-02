@@ -47,9 +47,28 @@ def descendentes(w):
         yield from descendentes(f)
 
 
+def blindar(func):
+    """Sem isso um erro dentro de callback do Tk trava o teste pra sempre."""
+    def envolvido(*args):
+        try:
+            func(*args)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            falhas.append(f"{func.__name__}: {e}")
+            a.quit()
+    return envolvido
+
+
+@blindar
 def etapa():
-    cartao = area.interior.winfo_children()[0]
-    outro = area.interior.winfo_children()[1]
+    from app import LinhaAtividade
+    linhas = [w for w in area.interior.winfo_children() if isinstance(w, LinhaAtividade)]
+    checar("achou as linhas de atividade", len(linhas) >= 2, str(len(linhas)))
+    if len(linhas) < 2:
+        a.quit()
+        return
+    cartao, outro = linhas[0], linhas[1]
 
     # finge que o cursor esta no meio do cartao
     def cursor_em(widget):
@@ -82,30 +101,32 @@ def etapa():
     a.update_idletasks()
     print(f"  redesenhos ao atravessar {len(filhos[1:13])} widgets internos: {len(redesenhos)}")
     checar("nao pisca ao andar dentro do cartao", len(redesenhos) <= 1, f"{len(redesenhos)} redesenhos")
-    checar("fica no estado hover", cartao._cor == app_mod.C["cartao_hover"], cartao._cor)
+    checar("fica no estado hover", cartao._cor == app_mod.C["superficie"], cartao._cor)
 
     print("\n=== saindo do cartao de verdade ===")
     cursor_em(outro)  # cursor agora esta sobre outro cartao
     redesenhos.clear()
     filhos[5].event_generate("<Leave>")
     a.update()
-    a.update_idletasks()
-    checar("despinta ao sair", cartao._cor == app_mod.C["cartao"], cartao._cor)
+    time.sleep(0.08)  # o despintar e adiado em 30ms de proposito
+    a.update()
+    checar("despinta ao sair", cartao._cor == "transparent", cartao._cor)
     checar("um unico redesenho", len(redesenhos) == 1, f"{len(redesenhos)}")
 
     print("\n=== voltando pro cartao ===")
     cursor_em(cartao)
     cartao.event_generate("<Enter>")
     a.update()
-    checar("pinta de novo", cartao._cor == app_mod.C["cartao_hover"], cartao._cor)
+    checar("pinta de novo", cartao._cor == app_mod.C["superficie"], cartao._cor)
 
     print("\n=== cursor fora da janela (Leave sem Enter) ===")
     for c in descendentes(area.interior):
         c.winfo_pointerxy = lambda: (5000, 5000)
     cartao.event_generate("<Leave>")
     a.update()
-    a.update_idletasks()
-    checar("nao fica preso no hover", cartao._cor == app_mod.C["cartao"], cartao._cor)
+    time.sleep(0.08)
+    a.update()
+    checar("nao fica preso no hover", cartao._cor == "transparent", cartao._cor)
 
     print("\n=== cursor (mao) e clique ===")
     cursores = {str(w): w.cget("cursor") for w in descendentes(cartao)}

@@ -70,7 +70,7 @@ def etapa():
     checar("toplevel rola a lista", canvas.canvasy(0) > 0, f"{canvas.canvasy(0):.0f}px")
 
     print("\n=== roda entregue num widget qualquer (se ele pegar o foco) ===")
-    for nome, w in [("botao Atualizar", a.botao), ("cartao de resumo", a.r_pendentes),
+    for nome, w in [("botao Atualizar", a.botao), ("rotulo de estado", a.status),
                     ("cartao da lista", prio.interior.winfo_children()[1]),
                     ("canvas da area", canvas)]:
         canvas.yview_moveto(0)
