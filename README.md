@@ -45,8 +45,8 @@ mostrar erro.
 Precisa de **Python 3.10 ou mais novo** no Windows.
 
 ```bash
-git clone https://github.com/AndreyViolante/moodle-assistente.git
-cd moodle-assistente
+git clone https://github.com/AndreyViolante/Moodle-Assistente.git
+cd Moodle-Assistente
 pip install -r requirements.txt
 ```
 
